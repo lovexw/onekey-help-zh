@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>搜索 | OneKey 帮助中心</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<style>
+/* Information Architects: system fonts, content first, zero decoration */
+:root { --link: #0000EE; --link-visited: #551A8B; --fg: #1a1a1a; --muted: #595959; --line: #e6e6e6; --mark: #fff3a3; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px 16px 64px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: var(--fg); background: #fff;
+  font-size: 16px; line-height: 1.7;
+}
+main { max-width: 42rem; margin: 0 auto; }
+.brand a { color: inherit; text-decoration: none; font-weight: 600; }
+.brand .back { color: var(--link); text-decoration: underline; font-weight: 400; }
+h1 { font-size: 1.35rem; margin: 1.2rem 0 .4rem; font-weight: 600; }
+#q {
+  width: 100%; font-size: 1.05rem; padding: .65rem .9rem;
+  border: 2px solid var(--fg); border-radius: 8px; outline: none;
+}
+#q:focus { border-color: var(--link); }
+.meta { color: var(--muted); font-size: .9rem; margin: .6rem 0 0; }
+.status { color: var(--muted); margin: 2rem 0; }
+.status.err { color: #b00020; }
+ol.results { list-style: none; margin: 1.2rem 0 0; padding: 0; }
+ol.results li { padding: .9rem 0; border-bottom: 1px solid var(--line); }
+ol.results a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; font-size: 1.05rem; font-weight: 500; word-break: break-all; }
+ol.results a:visited { color: var(--link-visited); }
+ol.results .crumb { color: var(--muted); font-size: .82rem; margin-top: 2px; }
+ol.results .snip { margin: .25rem 0 0; font-size: .95rem; color: var(--fg); }
+mark { background: var(--mark); color: inherit; padding: 0 1px; }
+nav.pager { display: flex; gap: .6rem; align-items: center; justify-content: center; margin: 1.6rem 0 0; flex-wrap: wrap; }
+nav.pager button {
+  font: inherit; font-size: .95rem; padding: .35rem .8rem; border: 1px solid var(--fg);
+  background: #fff; color: var(--fg); border-radius: 6px; cursor: pointer;
+}
+nav.pager button:disabled { opacity: .35; cursor: default; }
+nav.pager button:not(:disabled):hover { background: #f2f2f2; }
+nav.pager .info { color: var(--muted); font-size: .9rem; }
+.sortbar { display: flex; gap: .8rem; align-items: center; margin-top: .8rem; font-size: .9rem; color: var(--muted); flex-wrap: wrap; }
+.sortbar button { font: inherit; font-size: .9rem; background: none; border: none; color: var(--link); cursor: pointer; text-decoration: underline; padding: 0; }
+.sortbar button[aria-pressed="true"] { color: var(--fg); font-weight: 600; text-decoration: none; cursor: default; }
+.skip { position: absolute; left: -9999px; }
+.skip:focus { left: 16px; top: 8px; background: #fff; padding: .4rem .6rem; border: 1px solid var(--fg); }
+@media (max-width: 480px) {
+  body { padding: 16px 12px 48px; }
+  h1 { font-size: 1.2rem; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#results">跳到搜索结果</a>
+<main>
+  <p class="brand"><a href="/zh-CN/">OneKey 帮助中心</a> · <a class="back" href="/zh-CN/">返回首页</a></p>
+  <h1>搜索文章</h1>
+  <form id="f" role="search" autocomplete="off">
+    <label class="skip" for="q">搜索关键词</label>
+    <input id="q" name="q" type="search" placeholder="输入关键词，例如：PIN 码、固件、助记词…" maxlength="100" autofocus>
+  </form>
+  <div class="sortbar" id="sortbar" hidden>
+    <span>排序：</span>
+    <button type="button" id="sort-rel" aria-pressed="true">相关性</button>
+    <button type="button" id="sort-date" aria-pressed="false">更新时间</button>
+  </div>
+  <p class="meta" id="meta" hidden></p>
+  <div class="status" id="status" role="status" aria-live="polite">正在加载搜索索引…</div>
+  <ol class="results" id="results"></ol>
+  <nav class="pager" id="pager" hidden>
+    <button type="button" id="prev">‹ 上一页</button>
+    <span class="info" id="pinfo"></span>
+    <button type="button" id="next">下一页 ›</button>
+  </nav>
+</main>
+<script>
+(function () {
+  'use strict';
+  var PAGE_SIZE = 10, MAX_SNIP = 160;
+  var docs = [], ready = false, sortMode = 'rel';
+  var $q = document.getElementById('q'), $meta = document.getElementById('meta'),
+      $status = document.getElementById('status'), $list = document.getElementById('results'),
+      $pager = document.getElementById('pager'), $pinfo = document.getElementById('pinfo'),
+      $prev = document.getElementById('prev'), $next = document.getElementById('next'),
+      $sortbar = document.getElementById('sortbar');
+
+  function esc(s) { return s.replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  var logQueue = [];
+  function logSearch(q, n, ms) {
+    var entry = { q: q, n: n, ms: ms, t: new Date().toISOString() };
+    try {
+      var all = JSON.parse(localStorage.getItem('okhelp-searchlog') || '[]');
+      all.push(entry);
+      if (all.length > 500) all = all.slice(-500);
+      localStorage.setItem('okhelp-searchlog', JSON.stringify(all));
+    } catch (e) { /* storage unavailable: drop */ }
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/search-log', new Blob([JSON.stringify(entry)], { type: 'application/json' }));
+      } else {
+        fetch('/api/search-log', { method: 'POST', body: JSON.stringify(entry), keepalive: true }).catch(function(){});
+      }
+    } catch (e) { /* endpoint absent on local preview: fine */ }
+  }
+
+  function tokenize(q) {
+    // split CJK bigrams + latin words; lowercase latin
+    var tokens = [];
+    var re = /[a-zA-Z0-9]+|[\u4e00-\u9fff\u3400-\u4dbf]/g, m;
+    var cjk = '';
+    while ((m = re.exec(q)) !== null) {
+      var t = m[0];
+      if (t.length === 1 && /[\u4e00-\u9fff\u3400-\u4dbf]/.test(t)) {
+        cjk += t;               // buffer contiguous CJK
+      } else {
+        if (cjk) { addBigrams(cjk, tokens); cjk = ''; }
+        tokens.push(t.toLowerCase());
+      }
+    }
+    if (cjk) addBigrams(cjk, tokens);
+    return tokens.filter(function (t, i, a) { return a.indexOf(t) === i; });
+  }
+  function addBigrams(s, out) {
+    if (s.length === 1) { out.push(s); return; }
+    for (var i = 0; i < s.length - 1; i++) out.push(s.substr(i, 2));
+  }
+
+  function search(q) {
+    var t0 = performance.now();
+    var toks = tokenize(q);
+    var cjkQuery = /[\u4e00-\u9fff]/.test(q);
+    var hits = [];
+    for (var i = 0; i < docs.length; i++) {
+      var d = docs[i], score = 0, firstTokText = -1;
+      var titleLower = d.title.toLowerCase(), textLower = d.textLower, colLower = d.collection.toLowerCase();
+      var all = true;
+      var matched = 0;
+      for (var j = 0; j < toks.length; j++) {
+        var tk = toks[j];
+        var it = titleLower.indexOf(tk), ix = textLower.indexOf(tk), ic = colLower.indexOf(tk);
+        if (it < 0 && ix < 0 && ic < 0) { all = false; continue; }
+        matched++;
+        var s = 0;
+        if (it >= 0) s += 12 + (it === 0 ? 6 : 0);
+        if (ic >= 0) s += 4;
+        if (ix >= 0) { s += 2; if (firstTokText < 0) firstTokText = ix; }
+        // frequency bonus (capped)
+        var freq = 0, pos = 0;
+        while ((pos = textLower.indexOf(tk, pos)) >= 0 && freq < 10) { freq++; pos += tk.length; }
+        s += freq;
+        score += s;
+      }
+      if (all && toks.length) {
+        d._score = score; d._firstAt = firstTokText < 0 ? 0 : firstTokText;
+        d._hitTok = toks[0];
+        hits.push(d);
+      } else if (!all && cjkQuery && toks.length > 1 && matched >= Math.ceil(toks.length / 2)) {
+        // fallback: partial match (at least half the tokens) — catches phrasing variants
+        d._score = Math.round(score * 0.5); d._firstAt = firstTokText < 0 ? 0 : firstTokText;
+        hits.push(d);
+      }
+    }
+    var ms = Math.round(performance.now() - t0);
+    return { hits: hits, ms: ms };
+  }
+
+  function snippet(d, toks) {
+    var start = 0, best = -1;
+    for (var j = 0; j < toks.length; j++) {
+      var k = d.textLower.indexOf(toks[j]);
+      if (k >= 0 && (best < 0 || k < best)) best = k;
+    }
+    if (best > 40) start = best - 40;
+    var frag = d.text.substr(start, MAX_SNIP);
+    if (start > 0) frag = '…' + frag;
+    if (start + MAX_SNIP < d.text.length) frag += '…';
+    return hl(frag, toks);
+  }
+  function hl(s, toks) {
+    var safe = esc(s);
+    toks.sort(function (a, b) { return b.length - a.length; }).forEach(function (tk) {
+      var re;
+      if (/^[a-z0-9]+$/.test(tk)) re = new RegExp('(' + escRe(tk) + ')(?![a-z0-9])', 'gi');
+      else re = new RegExp('(' + escRe(tk) + ')', 'gi');
+      // careful: operate on escaped text; tokens are plain (no entities in tokens)
+      safe = safe.replace(re, '<mark>$1</mark>');
+    });
+    return safe;
+  }
+
+  var current = { q: '', toks: [], hits: [], page: 1 };
+
+  function render() {
+    var q = current.q, toks = current.toks, hits = current.hits, page = current.page;
+    var total = hits.length, pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (page > pages) page = pages;
+    current.page = page;
+    // sort
+    if (sortMode === 'date') {
+      hits.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    } else {
+      hits.sort(function (a, b) { return b._score - a._score; });
+    }
+    var slice = hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    var html = '';
+    for (var i = 0; i < slice.length; i++) {
+      var d = slice[i];
+      html += '<li>'
+        + '<a href="' + esc(d.url) + '">' + hl(d.title, toks) + '</a>'
+        + '<div class="crumb">' + esc(d.collection || 'OneKey 帮助中心') + (d.date ? ' · 更新于 ' + esc(d.date) : '') + ' · 相关度 ' + d._score + '</div>'
+        + '<p class="snip">' + snippet(d, toks) + '</p>'
+        + '</li>';
+    }
+    $list.innerHTML = html;
+    $meta.hidden = false;
+    $meta.textContent = '找到 ' + total + ' 篇与「' + q + '」相关的文章（第 ' + page + '/' + pages + ' 页）';
+    var showPager = pages > 1;
+    $pager.hidden = !showPager;
+    if (showPager) {
+      $pinfo.textContent = page + ' / ' + pages;
+      $prev.disabled = page <= 1;
+      $next.disabled = page >= pages;
+    }
+  }
+
+  function run(q) {
+    q = (q || '').trim().slice(0, 100);
+    if (history.replaceState) history.replaceState(null, '', q ? '/zh-CN/search/?q=' + encodeURIComponent(q) : '/zh-CN/search/');
+    if (!q) {
+      current = { q: '', toks: [], hits: [], page: 1 };
+      $meta.hidden = true; $pager.hidden = true; $list.innerHTML = '';
+      $status.className = 'status';
+      $status.hidden = false;
+      $status.textContent = '输入关键词开始搜索，支持文章标题与正文内容。';
+      return;
+    }
+    var r = search(q);
+    logSearch(q, r.hits.length, r.ms);
+    current = { q: q, toks: tokenize(q), hits: r.hits, page: 1 };
+    $sortbar.hidden = r.hits.length === 0;
+    if (r.hits.length === 0) {
+      $list.innerHTML = ''; $pager.hidden = true; $meta.hidden = true;
+      $status.hidden = false; $status.className = 'status';
+      $status.textContent = '没有找到与「' + q + '」相关的文章。建议换一个关键词，例如：PIN、固件、助记词、连接。';
+      return;
+    }
+    $status.hidden = true;
+    render();
+  }
+
+  // load index
+  var t0 = performance.now();
+  fetch('/search-index.json')
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (data) {
+      docs = data.docs;
+      for (var i = 0; i < docs.length; i++) docs[i].textLower = docs[i].text.toLowerCase();
+      ready = true;
+      var ms = Math.round(performance.now() - t0);
+      $status.hidden = true;
+      var init = new URLSearchParams(location.search).get('q') || '';
+      if (init) { $q.value = init; run(init); }
+      else { $status.hidden = false; $status.textContent = '索引就绪（' + docs.length + ' 篇文章，加载 ' + ms + 'ms）。输入关键词开始搜索。'; }
+    })
+    .catch(function (e) {
+      $status.className = 'status err';
+      $status.textContent = '搜索索引加载失败，请刷新重试。(' + e.message + ')';
+    });
+
+  var deb;
+  $q.addEventListener('input', function () {
+    clearTimeout(deb);
+    deb = setTimeout(function () { run($q.value); }, 250);
+  });
+  document.getElementById('f').addEventListener('submit', function (e) { e.preventDefault(); clearTimeout(deb); run($q.value); });
+  $prev.addEventListener('click', function () { if (current.page > 1) { current.page--; render(); } });
+  $next.addEventListener('click', function () {
+    var pages = Math.ceil(current.hits.length / PAGE_SIZE);
+    if (current.page < pages) { current.page++; render(); }
+  });
+  document.getElementById('sort-rel').addEventListener('click', function () { sortMode = 'rel'; setPressed(this, 'sort-date'); if (current.q) render(); });
+  document.getElementById('sort-date').addEventListener('click', function () { sortMode = 'date'; setPressed(this, 'sort-rel'); if (current.q) render(); });
+  function setPressed(on, offId) {
+    on.setAttribute('aria-pressed', 'true');
+    document.getElementById(offId).setAttribute('aria-pressed', 'false');
+  }
+})();
+</script>
+</body>
+</html>
