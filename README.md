@@ -36,3 +36,10 @@ npx wrangler pages deploy site --project-name onekey-help-zh
 ```bash
 cd tools && python3 crawler.py pages && python3 crawler.py assets
 ```
+
+## 站内搜索（已上线）
+
+- 搜索页：`/zh-CN/search/`（全站搜索框自动跳转到该页）
+- 台账：`/zh-CN/search-log/`（本机记录 + CSV 导出）
+- 索引：`search-index.json`（324 篇，由 `tools/build_search_index.py` 生成）
+- 交接文档：`tools/SEARCH-HANDOVER.md`（实现说明 / KV 绑定 / 测试记录 / 限制与优化建议）
