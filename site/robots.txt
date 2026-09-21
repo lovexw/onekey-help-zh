@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Disallow: /articles/11536900-contact-us/
