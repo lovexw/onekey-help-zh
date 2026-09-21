@@ -36,9 +36,3 @@ npx wrangler pages deploy site --project-name onekey-help-zh
 ```bash
 cd tools && python3 crawler.py pages && python3 crawler.py assets
 ```
-
-## 图片资源包
-
-文章图片（约 2,300 张，547MB 压缩包）不进 Git 历史，通过 Release 附件分发：
-`gh release download v1.0 -R lovexw/onekey-help-zh` 解压到 `site/` 下即可本地跑全站。
-线上部署（Cloudflare Pages 直传）包含全部图片，无需此包。
